@@ -10,19 +10,12 @@ const SQL = {
     join public.events e on e.id = i.event_id
     where i.token = $1
   `,
-  selectMember: `
-    select role, status
-    from public.event_members
-    where event_id = $1 and user_id = $2
-  `,
-  updateMemberStatus: `
-    update public.event_members
-    set status = 'joined'
-    where event_id = $1 and user_id = $2
-  `,
-  insertMember: `
+  upsertMember: `
     insert into public.event_members (event_id, user_id, role, status)
     values ($1, $2, 'attendee', 'joined')
+    on conflict (event_id, user_id) do update
+      set status = 'joined'
+    returning event_id
   `,
 };
 
@@ -70,44 +63,20 @@ serve(async (request) => {
     return errorResponse("INVITE_EXPIRED", 410);
   }
 
-  const { data: existingMember, error: memberLookupError } = await supabaseAdmin
+  const { error: memberError } = await supabaseAdmin
     .from("event_members")
-    .select("role, status")
-    .eq("event_id", inviteRow.event_id)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (memberLookupError) {
-    return errorResponse("MEMBERSHIP_LOOKUP_FAILED", 500);
-  }
-
-  if (existingMember) {
-    if (existingMember.status === "blocked") {
-      return errorResponse("BLOCKED", 403);
-    }
-
-    const { error: memberUpdateError } = await supabaseAdmin
-      .from("event_members")
-      .update({ status: "joined" })
-      .eq("event_id", inviteRow.event_id)
-      .eq("user_id", userId);
-
-    if (memberUpdateError) {
-      return errorResponse("MEMBERSHIP_UPDATE_FAILED", 500);
-    }
-  } else {
-    const { error: memberInsertError } = await supabaseAdmin
-      .from("event_members")
-      .insert({
+    .upsert(
+      {
         event_id: inviteRow.event_id,
         user_id: userId,
         role: "attendee",
         status: "joined",
-      });
+      },
+      { onConflict: "event_id,user_id" },
+    );
 
-    if (memberInsertError) {
-      return errorResponse("MEMBERSHIP_INSERT_FAILED", 500);
-    }
+  if (memberError) {
+    return errorResponse("MEMBERSHIP_UPSERT_FAILED", 500);
   }
 
   const event = inviteRow.events;

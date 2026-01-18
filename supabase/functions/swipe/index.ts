@@ -16,12 +16,7 @@ const SQL = {
   countJoined: `
     select count(*)::int as joined_count
     from public.event_members
-    where event_id = $1 and status = 'joined' and role = 'attendee'
-  `,
-  selectTargetMember: `
-    select 1
-    from public.event_members
-    where event_id = $1 and user_id = $2 and status = 'joined'
+    where event_id = $1 and status = 'joined'
   `,
   insertSwipe: `
     insert into public.swipes (event_id, swiper_id, swiped_id, direction)
@@ -97,22 +92,6 @@ serve(async (request) => {
     return errorResponse("BLOCKED", 403);
   }
 
-  const { data: targetMember, error: targetError } = await supabaseAdmin
-    .from("event_members")
-    .select("event_id")
-    .eq("event_id", eventId)
-    .eq("user_id", swipedId)
-    .eq("status", "joined")
-    .maybeSingle();
-
-  if (targetError) {
-    return errorResponse("TARGET_LOOKUP_FAILED", 500);
-  }
-
-  if (!targetMember) {
-    return errorResponse("INVALID_TARGET", 400);
-  }
-
   const { data: eventRow, error: eventError } = await supabaseAdmin
     .from("events")
     .select(
@@ -133,8 +112,7 @@ serve(async (request) => {
     .from("event_members")
     .select("event_id", { count: "exact", head: true })
     .eq("event_id", eventId)
-    .eq("status", "joined")
-    .eq("role", "attendee");
+    .eq("status", "joined");
 
   if (countError) {
     return errorResponse("COUNT_FAILED", 500);
@@ -166,7 +144,7 @@ serve(async (request) => {
   }
 
   if (swipeError?.code === "23505") {
-    return jsonResponse({ ok: true, matched: false, already_swiped: true });
+    return errorResponse("ALREADY_SWIPED", 409);
   }
 
   let matched = false;
@@ -230,5 +208,5 @@ serve(async (request) => {
     }
   }
 
-  return jsonResponse({ ok: true, matched, match_id: matchId, already_swiped: false });
+  return jsonResponse({ ok: true, matched, match_id: matchId });
 });
