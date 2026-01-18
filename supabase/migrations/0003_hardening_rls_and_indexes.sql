@@ -1,5 +1,10 @@
 begin;
 
+-- Add event payment fields.
+alter table public.events
+  add column if not exists checkout_session_id text,
+  add column if not exists paid_at timestamptz;
+
 -- Remove invite token policy; invite validation handled via service role.
 drop policy if exists invites_select_by_token on public.invites;
 
