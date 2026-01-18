@@ -10,13 +10,10 @@ create table if not exists public.events (
   swipe_start_at timestamptz not null,
   swipe_end_at timestamptz not null,
   is_paid boolean not null default false,
-  paid_at timestamptz null,
-  checkout_session_id text null,
   is_test_mode boolean not null default true,
   test_mode_attendee_cap integer not null default 20,
   match_expires_days integer not null default 7,
-  created_at timestamptz not null default now(),
-  check (swipe_end_at > swipe_start_at)
+  created_at timestamptz not null default now()
 );
 
 create table if not exists public.invites (
@@ -79,13 +76,9 @@ create table if not exists public.matches (
 -- Indexes
 create index if not exists event_members_event_id_idx on public.event_members (event_id);
 create index if not exists event_members_user_id_idx on public.event_members (user_id);
-create index if not exists event_members_event_user_status_idx
-  on public.event_members (event_id, user_id, status);
 
 create index if not exists swipes_event_swiper_created_idx
   on public.swipes (event_id, swiper_id, created_at);
-create index if not exists swipes_event_swiped_direction_idx
-  on public.swipes (event_id, swiped_id, direction);
 
 create index if not exists matches_event_user_a_idx on public.matches (event_id, user_a);
 create index if not exists matches_event_user_b_idx on public.matches (event_id, user_b);
@@ -274,12 +267,19 @@ using (
   )
 );
 
+create policy invites_select_by_token
+on public.invites
+for select
+using (
+  token = (current_setting('request.jwt.claims', true)::jsonb ->> 'invite_token')
+);
+
 -- Policies: swipes
 create policy swipes_select_own
 on public.swipes
 for select
 using (
-  swiper_id = auth.uid()
+  (swiper_id = auth.uid() or swiped_id = auth.uid())
   and exists (
     select 1
     from public.event_members em
