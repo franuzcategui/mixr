@@ -23,20 +23,7 @@ class AuthController extends StateNotifier<AuthSnapshot> {
     this.onSessionInvalid,
   }) : super(_buildSnapshot(_client.auth.currentSession)) {
     _subscription = _client.auth.onAuthStateChange.listen((data) {
-      _logAuthEvent(data.event, data.session);
-      final snapshot = _buildSnapshot(data.session);
-      state = snapshot;
-      if (data.event == AuthChangeEvent.signedOut) {
-        onSignedOut?.call();
-        return;
-      }
-      if (snapshot.isExpired) {
-        _forceSignOut('session_expired');
-        return;
-      }
-      if (data.event == AuthChangeEvent.userDeleted) {
-        _forceSignOut('user_deleted');
-      }
+      _handleAuthChange(data.event, data.session);
     });
   }
 
@@ -45,6 +32,27 @@ class AuthController extends StateNotifier<AuthSnapshot> {
   final VoidCallback? onSignedOut;
   final VoidCallback? onSessionInvalid;
   bool _isSigningOut = false;
+  bool _isRefreshing = false;
+
+  Future<void> _handleAuthChange(AuthChangeEvent event, Session? session) async {
+    _logAuthEvent(event, session);
+    final snapshot = _buildSnapshot(session);
+    state = snapshot;
+
+    if (event == AuthChangeEvent.signedOut) {
+      onSignedOut?.call();
+      return;
+    }
+
+    if (snapshot.isExpired) {
+      await _refreshOrSignOut('session_expired');
+      return;
+    }
+
+    if (event == AuthChangeEvent.userDeleted) {
+      await _forceSignOut('user_deleted');
+    }
+  }
 
   void _logAuthEvent(AuthChangeEvent event, Session? session) {
     final token = session?.accessToken ?? '';
@@ -53,6 +61,23 @@ class AuthController extends StateNotifier<AuthSnapshot> {
       'Auth event: ${event.name}, user: ${session?.user.id ?? 'none'}, '
       'tokenSegments: $segments',
     );
+  }
+
+  Future<void> _refreshOrSignOut(String reason) async {
+    if (_isRefreshing) return;
+    _isRefreshing = true;
+    debugPrint('Auth refresh attempt: $reason');
+    try {
+      final refreshed = await _client.auth.refreshSession();
+      if (refreshed.session == null) {
+        await _forceSignOut('refresh_failed');
+      }
+    } catch (error) {
+      debugPrint('Auth refresh failed: $error');
+      await _forceSignOut('refresh_failed');
+    } finally {
+      _isRefreshing = false;
+    }
   }
 
   Future<void> _forceSignOut(String reason) async {
