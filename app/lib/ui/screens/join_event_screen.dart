@@ -2,23 +2,23 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../data/api/edge_api.dart';
+import '../../core/config/app_env.dart';
 import '../../domain/models/event.dart';
-import '../../domain/models/event_membership.dart';
+import '../../state/providers.dart';
 import 'event_status_screen.dart';
 
-class JoinEventScreen extends StatefulWidget {
+class JoinEventScreen extends ConsumerStatefulWidget {
   const JoinEventScreen({super.key});
 
   @override
-  State<JoinEventScreen> createState() => _JoinEventScreenState();
+  ConsumerState<JoinEventScreen> createState() => _JoinEventScreenState();
 }
 
-class _JoinEventScreenState extends State<JoinEventScreen> {
+class _JoinEventScreenState extends ConsumerState<JoinEventScreen> {
   final _tokenController = TextEditingController();
-  final _api = EdgeApi();
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -40,24 +40,22 @@ class _JoinEventScreenState extends State<JoinEventScreen> {
       }
       final session = Supabase.instance.client.auth.currentSession;
       debugPrint('JoinEvent access token: ${session?.accessToken ?? '(none)'}');
-      final response = await _api.joinEvent(_tokenController.text.trim());
-      final event = _eventFromResponse(response);
-      final membership = EventMembership(
-        eventId: event.id,
-        userId: Supabase.instance.client.auth.currentUser?.id ?? 'me',
-        joinedAt: DateTime.now(),
-      );
+      await ref
+          .read(eventControllerProvider.notifier)
+          .joinEvent(_tokenController.text.trim());
 
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => EventStatusScreen(
-            event: event,
-            membership: membership,
-            attendeeCount: 0,
+      final state = ref.read(eventControllerProvider);
+      if (state.event != null && mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const EventStatusScreen(),
           ),
-        ),
-      );
+        );
+      } else if (state.errorMessage != null) {
+        setState(() {
+          _errorMessage = state.errorMessage;
+        });
+      }
     } catch (error) {
       setState(() {
         _errorMessage = error.toString();
@@ -78,7 +76,7 @@ class _JoinEventScreenState extends State<JoinEventScreen> {
     });
 
     try {
-      final response = await _api.mintInvite();
+      final response = await ref.read(edgeApiProvider).mintInvite();
       final inviteToken = response['invite_token'] as String?;
       if (inviteToken != null && inviteToken.isNotEmpty) {
         _tokenController.text = inviteToken;
@@ -107,28 +105,41 @@ class _JoinEventScreenState extends State<JoinEventScreen> {
     return jsonDecode(decoded) as Map<String, dynamic>;
   }
 
-  Event _eventFromResponse(Map<String, dynamic> response) {
-    return Event(
-      id: response['event_id'] as String,
-      name: (response['event_name'] as String?) ?? 'Event',
-      timezone: (response['timezone'] as String?) ?? 'UTC',
-      swipeStartAt: DateTime.parse(response['swipe_start_at'] as String),
-      swipeEndAt: DateTime.parse(response['swipe_end_at'] as String),
-      isPaid: response['is_paid'] == true,
-      isTestMode: response['is_test_mode'] == true,
-      testModeAttendeeLimit:
-          (response['test_mode_attendee_cap'] as num?)?.toInt() ?? 0,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final session = Supabase.instance.client.auth.currentSession;
     final token = session?.accessToken ?? '';
     final payload = token.isNotEmpty ? _decodeJwt(token) : null;
+    final eventState = ref.watch(eventControllerProvider);
+    final event = eventState.event;
+    final domainEvent = event == null
+        ? null
+        : Event(
+            id: event.eventId,
+            name: event.eventName,
+            timezone: event.timezone,
+            swipeStartAt: DateTime.parse(event.swipeStartAt).toUtc(),
+            swipeEndAt: DateTime.parse(event.swipeEndAt).toUtc(),
+            isPaid: event.isPaid,
+            isTestMode: event.isTestMode,
+            testModeAttendeeLimit: event.testModeAttendeeCap,
+          );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Join Event')),
+      appBar: AppBar(
+        title: const Text('Join Event'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await ref.read(authControllerProvider.notifier).signOut();
+              ref.read(eventControllerProvider.notifier).clearEvent();
+              ref.read(profileControllerProvider.notifier).clearProfile();
+              ref.read(swipeControllerProvider.notifier).clearSwipe();
+            },
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -158,21 +169,21 @@ class _JoinEventScreenState extends State<JoinEventScreen> {
               child: const Text('Mint test invite'),
             ),
             const SizedBox(height: 16),
-            // Text(
-            //   'Debug:',
-            //   style: Theme.of(context).textTheme.titleMedium,
-            // ),
+            Text(
+              'Debug:',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
-            // Text('Supabase URL: ${AppEnv.supabaseUrl}'),
-            // Text('Session present: ${session != null}'),
-            // Text('Token length: ${token.length}'),
+            Text('Supabase URL: ${AppEnv.supabaseUrl}'),
+            Text('Session present: ${session != null}'),
+            Text('Token length: ${token.length}'),
             if (payload != null) ...[
-              // Text('Token iss: ${payload['iss']}'),
-              // Text('Token ref: ${payload['ref']}'),
-              // Text('Token exp: ${payload['exp']}'),
+              Text('Token iss: ${payload['iss']}'),
+              Text('Token ref: ${payload['ref']}'),
+              Text('Token exp: ${payload['exp']}'),
             ],
             const SizedBox(height: 8),
-           // Text('Access token: ${token.isEmpty ? '(none)' : token}'),
+            // Text('Access token: ${token.isEmpty ? '(none)' : token}'),
             const SizedBox(height: 8),
             OutlinedButton(
               onPressed: token.isEmpty
@@ -192,6 +203,12 @@ class _JoinEventScreenState extends State<JoinEventScreen> {
               Text(
                 _errorMessage!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+            if (domainEvent != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Joined event: ${domainEvent.name}',
               ),
             ],
           ],

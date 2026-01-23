@@ -24,16 +24,19 @@ bool canSwipe(
   int attendeeCount,
   DateTime now,
 ) {
+ 
   if (me.eventId != event.id) {
+    print('canSwipe: eventId mismatch: ${me.eventId} != ${event.id}');
     return false;
   }
 
   if (now.isBefore(event.swipeStartAt) || !now.isBefore(event.swipeEndAt)) {
+   print('canSwipe: current time $now vs ${event.swipeStartAt} vs ${event.swipeEndAt}: ${now.isBefore(event.swipeStartAt)} || ${now.isBefore(event.swipeEndAt)}');
     return false;
   }
 
   final isUnlocked = event.isPaid ||
       (event.isTestMode && attendeeCount <= event.testModeAttendeeLimit);
-
+  print('canSwipe: isUnlocked: $isUnlocked');
   return isUnlocked;
 }

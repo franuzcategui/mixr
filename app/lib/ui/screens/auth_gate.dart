@@ -1,25 +1,32 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'auth_screen.dart';
 import 'join_event_screen.dart';
+import 'event_status_screen.dart';
+import 'profile_setup_screen.dart';
+import '../../state/providers.dart';
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final auth = Supabase.instance.client.auth;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authControllerProvider);
+    if (auth.session == null) {
+      return const AuthScreen();
+    }
 
-    return StreamBuilder<AuthState>(
-      stream: auth.onAuthStateChange,
-      builder: (context, snapshot) {
-        final session = auth.currentSession;
-        if (session == null) {
-          return const AuthScreen();
-        }
-        return const JoinEventScreen();
-      },
-    );
+    final profile = ref.watch(profileControllerProvider);
+    if (!profile.isComplete) {
+      return const ProfileSetupScreen();
+    }
+
+    final event = ref.watch(eventControllerProvider).event;
+    if (event == null) {
+      return const JoinEventScreen();
+    }
+
+    return const EventStatusScreen();
   }
 }

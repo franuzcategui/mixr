@@ -1,36 +1,30 @@
 import 'package:flutter/material.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../domain/logic/event_logic.dart';
 import '../../domain/logic/event_state.dart';
 import '../../domain/models/event.dart';
 import '../../domain/models/event_membership.dart';
+import '../../state/providers.dart';
 import 'matches_placeholder_screen.dart';
 import 'swipe_placeholder_screen.dart';
 
-class EventStatusScreen extends StatefulWidget {
-  const EventStatusScreen({
-    super.key,
-    required this.event,
-    required this.membership,
-    required this.attendeeCount,
-  });
-
-  final Event event;
-  final EventMembership membership;
-  final int attendeeCount;
+class EventStatusScreen extends ConsumerStatefulWidget {
+  const EventStatusScreen({super.key});
 
   @override
-  State<EventStatusScreen> createState() => _EventStatusScreenState();
+  ConsumerState<EventStatusScreen> createState() => _EventStatusScreenState();
 }
 
-class _EventStatusScreenState extends State<EventStatusScreen> {
+class _EventStatusScreenState extends ConsumerState<EventStatusScreen> {
   late final TextEditingController _attendeeCountController;
   late int _attendeeCount;
 
   @override
   void initState() {
     super.initState();
-    _attendeeCount = widget.attendeeCount;
+    _attendeeCount = 0;
     _attendeeCountController =
         TextEditingController(text: _attendeeCount.toString());
   }
@@ -50,30 +44,67 @@ class _EventStatusScreenState extends State<EventStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final isUnlocked = widget.event.isPaid ||
-        (widget.event.isTestMode &&
-            _attendeeCount <= widget.event.testModeAttendeeLimit);
-    final state = computeEventState(widget.event, now, isUnlocked);
+    final snapshot = ref.watch(eventControllerProvider).event;
+    if (snapshot == null) {
+      return const Scaffold(
+        body: Center(child: Text('No event loaded.')),
+      );
+    }
+
+    final event = Event(
+      id: snapshot.eventId,
+      name: snapshot.eventName,
+      timezone: snapshot.timezone,
+      swipeStartAt: DateTime.parse(snapshot.swipeStartAt).toUtc(),
+      swipeEndAt: DateTime.parse(snapshot.swipeEndAt).toUtc(),
+      isPaid: snapshot.isPaid,
+      isTestMode: snapshot.isTestMode,
+      testModeAttendeeLimit: snapshot.testModeAttendeeCap,
+    );
+    final session = ref.read(authControllerProvider).session;
+    final userId = session == null ? 'me' : session.user.id;
+    final membership = EventMembership(
+      eventId: event.id,
+      userId: userId,
+      joinedAt: DateTime.now().toUtc(),
+    );
+
+    final now = DateTime.now().toUtc();
+    print('now: $now');
+    final isUnlocked = event.isPaid ||
+        (event.isTestMode && _attendeeCount <= event.testModeAttendeeLimit);
+    final state = computeEventState(event, now, isUnlocked);
     final swipeAllowed = canSwipe(
-      widget.event,
-      widget.membership,
+      event,
+      membership,
       _attendeeCount,
       now,
     );
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.event.name)),
+      appBar: AppBar(
+        title: Text(event.name),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await ref.read(authControllerProvider.notifier).signOut();
+              ref.read(eventControllerProvider.notifier).clearEvent();
+              ref.read(profileControllerProvider.notifier).clearProfile();
+              ref.read(swipeControllerProvider.notifier).clearSwipe();
+            },
+          ),
+        ],
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: ListView(
           children: [
             Text('Event status: ${_labelForState(state)}'),
             const SizedBox(height: 8),
-            Text('Timezone: ${widget.event.timezone}'),
+            Text('Timezone: ${event.timezone}'),
             const SizedBox(height: 8),
-            Text('Swipe window: ${widget.event.swipeStartAt} → '
-                '${widget.event.swipeEndAt}'),
+            Text('Swipe window: ${event.swipeStartAt} → ${event.swipeEndAt}'),
             const SizedBox(height: 8),
             Text('Unlocked: ${isUnlocked ? 'yes' : 'no'}'),
             const SizedBox(height: 16),
@@ -92,9 +123,7 @@ class _EventStatusScreenState extends State<EventStatusScreen> {
                   ? () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => SwipePlaceholderScreen(
-                            event: widget.event,
-                          ),
+                          builder: (_) => const SwipePlaceholderScreen(),
                         ),
                       );
                     }
@@ -107,7 +136,7 @@ class _EventStatusScreenState extends State<EventStatusScreen> {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => MatchesPlaceholderScreen(
-                      event: widget.event,
+                      event: event,
                     ),
                   ),
                 );

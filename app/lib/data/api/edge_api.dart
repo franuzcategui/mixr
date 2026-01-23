@@ -11,6 +11,30 @@ class EdgeApi {
 
   final http.Client _client;
 
+  Future<String> _resolveAccessToken() async {
+    final auth = Supabase.instance.client.auth;
+    var session = auth.currentSession;
+    if (session == null) {
+      throw ApiUnauthorizedException('Missing Supabase access token.');
+    }
+
+    final expiresAt = session.expiresAt;
+    if (expiresAt != null) {
+      final expiry = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+      if (DateTime.now().isAfter(expiry.subtract(const Duration(minutes: 1)))) {
+        final refreshed = await auth.refreshSession();
+        session = refreshed.session ?? auth.currentSession;
+      }
+    }
+
+    final accessToken = session?.accessToken;
+    if (accessToken == null || accessToken.isEmpty) {
+      throw ApiUnauthorizedException('Missing Supabase access token.');
+    }
+
+    return accessToken;
+  }
+
   Future<Map<String, dynamic>> joinEvent(String token) {
     return _postJson(
       functionName: 'join_event',
@@ -44,10 +68,7 @@ class EdgeApi {
     required String functionName,
     required Map<String, dynamic> body,
   }) async {
-    final accessToken = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (accessToken == null || accessToken.isEmpty) {
-      throw ApiUnauthorizedException('Missing Supabase access token.');
-    }
+    final accessToken = await _resolveAccessToken();
 
     final uri = Uri.parse('${AppEnv.supabaseUrl}/functions/v1/$functionName');
     final response = await _client.post(

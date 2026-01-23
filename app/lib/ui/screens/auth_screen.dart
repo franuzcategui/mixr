@@ -52,7 +52,9 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: 'com.mixr.app://login-callback',
+       //redirectTo:'io.supabase.flutter://login-callback',
+       redirectTo: 'com.mixr.app://login-callback',
+        queryParams: {'prompt': 'select_account'},
       );
       setState(() {
         _message = 'Complete sign-in in the browser.';

@@ -1,102 +1,111 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/api/edge_api.dart';
-import '../../domain/models/event.dart';
+import '../../state/providers.dart';
 
-class SwipePlaceholderScreen extends StatefulWidget {
-  const SwipePlaceholderScreen({super.key, required this.event});
-
-  final Event event;
+class SwipePlaceholderScreen extends ConsumerStatefulWidget {
+  const SwipePlaceholderScreen({super.key});
 
   @override
-  State<SwipePlaceholderScreen> createState() => _SwipePlaceholderScreenState();
+  ConsumerState<SwipePlaceholderScreen> createState() =>
+      _SwipePlaceholderScreenState();
 }
 
-class _SwipePlaceholderScreenState extends State<SwipePlaceholderScreen> {
-  final _swipedIdController = TextEditingController();
-  final _api = EdgeApi();
-  bool _isLoading = false;
-  String _direction = 'right';
-  String? _message;
+class _SwipePlaceholderScreenState extends ConsumerState<SwipePlaceholderScreen> {
+  bool _didLoad = false;
 
   @override
-  void dispose() {
-    _swipedIdController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _sendSwipe() async {
-    setState(() {
-      _isLoading = true;
-      _message = null;
-    });
-
-    try {
-      final response = await _api.swipe(
-        eventId: widget.event.id,
-        swipedId: _swipedIdController.text.trim(),
-        direction: _direction,
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didLoad) {
+      _didLoad = true;
+      Future.microtask(
+        () => ref.read(swipeControllerProvider.notifier).load(),
       );
-      setState(() {
-        _message = 'Swipe sent: ${response.toString()}';
-      });
-    } catch (error) {
-      setState(() {
-        _message = error.toString();
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(swipeControllerProvider, (previous, next) {
+      if (next.lastMatchUserId != null &&
+          next.lastMatchUserId != previous?.lastMatchUserId) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Matched!')),
+        );
+      }
+    });
+
+    final state = ref.watch(swipeControllerProvider);
+    final card = ref.read(swipeControllerProvider.notifier).currentCard;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Swipe')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: ListView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Event: ${widget.event.name}'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _swipedIdController,
-              decoration: const InputDecoration(
-                labelText: 'Swiped user id',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: _direction,
-              decoration: const InputDecoration(
-                labelText: 'Direction',
-                border: OutlineInputBorder(),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'left', child: Text('Left')),
-                DropdownMenuItem(value: 'right', child: Text('Right')),
-              ],
-              onChanged: _isLoading
-                  ? null
-                  : (value) => setState(() => _direction = value ?? 'right'),
-            ),
+            if (state.status.isLoading) const LinearProgressIndicator(),
             const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _isLoading ? null : _sendSwipe,
-              child: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Send swipe'),
-            ),
-            if (_message != null) ...[
+            if (card == null)
+              const Text('No more candidates.'),
+            if (card != null) ...[
+              Text(card.displayName, style: Theme.of(context).textTheme.titleLarge),
+              if (card.bio != null) ...[
+                const SizedBox(height: 8),
+                Text(card.bio!),
+              ],
               const SizedBox(height: 12),
-              Text(_message!),
+              if (card.photoUrls.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    card.photoUrls.first,
+                    height: 220,
+                    fit: BoxFit.cover,
+                  ),
+                )
+              else
+                Container(
+                  height: 220,
+                  alignment: Alignment.center,
+                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  child: const Text('No photo'),
+                ),
+            ],
+            const Spacer(),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: card == null
+                        ? null
+                        : () => ref
+                            .read(swipeControllerProvider.notifier)
+                            .swipeLeft(),
+                    child: const Text('Left'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: card == null
+                        ? null
+                        : () => ref
+                            .read(swipeControllerProvider.notifier)
+                            .swipeRight(),
+                    child: const Text('Right'),
+                  ),
+                ),
+              ],
+            ),
+            if (state.errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                state.errorMessage!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ],
           ],
         ),
