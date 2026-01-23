@@ -27,7 +27,11 @@ final profileRepoProvider = Provider<ProfileRepo>(
 
 final authControllerProvider =
     StateNotifierProvider<AuthController, AuthSnapshot>(
-  (ref) => AuthController(ref.watch(supabaseClientProvider)),
+  (ref) => AuthController(
+    ref.watch(supabaseClientProvider),
+    onSignedOut: () => ref.read(authCleanupProvider).clearLocalState(),
+    onSessionInvalid: () => ref.read(authCleanupProvider).clearLocalState(),
+  ),
 );
 
 final eventControllerProvider =
@@ -48,3 +52,29 @@ final swipeControllerProvider =
     ref,
   ),
 );
+
+final authCleanupProvider = Provider<AuthCleanup>(
+  (ref) => AuthCleanup(ref),
+);
+
+class AuthCleanup {
+  AuthCleanup(this._ref);
+
+  final Ref _ref;
+
+  void clearLocalState() {
+    _ref.read(eventControllerProvider.notifier).clearEvent();
+    _ref.read(profileControllerProvider.notifier).clearProfile();
+    _ref.read(swipeControllerProvider.notifier).clearSwipe();
+  }
+
+  Future<void> signOutAndClear() async {
+    await _ref.read(supabaseClientProvider).auth.signOut();
+    clearLocalState();
+  }
+
+  Future<void> hardResetAuth() async {
+    await _ref.read(supabaseClientProvider).auth.signOut();
+    clearLocalState();
+  }
+}

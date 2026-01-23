@@ -1,15 +1,12 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../core/config/app_env.dart';
 import '../../core/errors/api_exception.dart';
 
 class EdgeApi {
-  EdgeApi({http.Client? client}) : _client = client ?? http.Client();
-
-  final http.Client _client;
+  EdgeApi();
 
   Future<String> _resolveAccessToken() async {
     final auth = Supabase.instance.client.auth;
@@ -22,8 +19,14 @@ class EdgeApi {
     if (expiresAt != null) {
       final expiry = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
       if (DateTime.now().isAfter(expiry.subtract(const Duration(minutes: 1)))) {
-        final refreshed = await auth.refreshSession();
-        session = refreshed.session ?? auth.currentSession;
+        try {
+          final refreshed = await auth.refreshSession();
+          session = refreshed.session ?? auth.currentSession;
+        } catch (error) {
+          debugPrint('EdgeApi refreshSession failed: $error');
+          await auth.signOut();
+          throw ApiUnauthorizedException('Failed to refresh Supabase session.');
+        }
       }
     }
 
@@ -32,6 +35,7 @@ class EdgeApi {
       throw ApiUnauthorizedException('Missing Supabase access token.');
     }
 
+    _logJwtClaims(accessToken);
     return accessToken;
   }
 
@@ -69,37 +73,40 @@ class EdgeApi {
     required Map<String, dynamic> body,
   }) async {
     final accessToken = await _resolveAccessToken();
+    Supabase.instance.client.functions.setAuth(accessToken);
+    final segments = accessToken.split('.').length;
+    debugPrint('EdgeApi $functionName token segments: $segments');
 
-    final uri = Uri.parse('${AppEnv.supabaseUrl}/functions/v1/$functionName');
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Authorization': 'Bearer $accessToken',
-        'apikey': AppEnv.supabaseAnonKey,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: jsonEncode(body),
-    );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final message = _readErrorMessage(response.body);
-      if (response.statusCode == 401) {
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        functionName,
+        body: body,
+      );
+      final data = response.data;
+      if (data == null) {
+        return <String, dynamic>{};
+      }
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+      return <String, dynamic>{'data': data};
+    } on FunctionException catch (error) {
+      debugPrint(
+        'EdgeApi $functionName FunctionException: '
+        'status=${error.status}, reason=${error.reasonPhrase}, '
+        'details=${error.details}',
+      );
+      final message = _readErrorMessage(_stringifyFunctionError(error));
+      if (error.status == 401) {
+        debugPrint('EdgeApi $functionName 401 via functions client');
+        await Supabase.instance.client.auth.signOut();
         throw ApiUnauthorizedException(message);
       }
-      throw ApiServerException(message, statusCode: response.statusCode);
+      throw ApiServerException(message, statusCode: error.status);
+    } catch (error) {
+      debugPrint('EdgeApi $functionName unexpected error: $error');
+      rethrow;
     }
-
-    if (response.body.isEmpty) {
-      return <String, dynamic>{};
-    }
-
-    final decoded = jsonDecode(response.body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
-
-    return <String, dynamic>{'data': decoded};
   }
 
   String _readErrorMessage(String body) {
@@ -119,5 +126,62 @@ class EdgeApi {
     } catch (_) {
       return body;
     }
+  }
+
+  String _stringifyFunctionError(FunctionException error) {
+    final details = error.details;
+    if (details == null) {
+      return error.reasonPhrase ?? 'Request failed.';
+    }
+    if (details is String) {
+      return details;
+    }
+    try {
+      return jsonEncode(details);
+    } catch (_) {
+      return details.toString();
+    }
+  }
+
+  void _logJwtClaims(String token) {
+    final parts = token.split('.');
+    if (parts.length != 3) {
+      debugPrint('EdgeApi JWT has ${parts.length} segments (expected 3).');
+      return;
+    }
+    final header = _decodeJwtPart(parts[0]);
+    final payload = _decodeJwtPart(parts[1]);
+    if (header == null || payload == null) {
+      debugPrint('EdgeApi JWT decode failed.');
+      return;
+    }
+    final now = DateTime.now().toUtc();
+    final exp = _readUnixTimestamp(payload['exp']);
+    final iat = _readUnixTimestamp(payload['iat']);
+    debugPrint(
+      'EdgeApi JWT header: alg=${header['alg']}, kid=${header['kid']}',
+    );
+    debugPrint(
+      'EdgeApi JWT payload: iss=${payload['iss']}, aud=${payload['aud']}, '
+      'sub=${payload['sub']}, iat=$iat, exp=$exp, now=$now',
+    );
+  }
+
+  Map<String, dynamic>? _decodeJwtPart(String part) {
+    try {
+      final normalized = base64Url.normalize(part);
+      final decoded = utf8.decode(base64Url.decode(normalized));
+      final json = jsonDecode(decoded);
+      return json is Map<String, dynamic> ? json : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  DateTime? _readUnixTimestamp(Object? value) {
+    if (value is num) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt() * 1000, isUtc: true);
+    }
+    return null;
   }
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -16,18 +17,52 @@ class AuthSnapshot {
 }
 
 class AuthController extends StateNotifier<AuthSnapshot> {
-  AuthController(this._client) : super(_buildSnapshot(_client.auth.currentSession)) {
+  AuthController(
+    this._client, {
+    this.onSignedOut,
+    this.onSessionInvalid,
+  }) : super(_buildSnapshot(_client.auth.currentSession)) {
     _subscription = _client.auth.onAuthStateChange.listen((data) {
+      _logAuthEvent(data.event, data.session);
       final snapshot = _buildSnapshot(data.session);
       state = snapshot;
+      if (data.event == AuthChangeEvent.signedOut) {
+        onSignedOut?.call();
+        return;
+      }
       if (snapshot.isExpired) {
-        signOut();
+        _forceSignOut('session_expired');
+        return;
+      }
+      if (data.event == AuthChangeEvent.userDeleted) {
+        _forceSignOut('user_deleted');
       }
     });
   }
 
   final SupabaseClient _client;
   StreamSubscription<AuthState>? _subscription;
+  final VoidCallback? onSignedOut;
+  final VoidCallback? onSessionInvalid;
+  bool _isSigningOut = false;
+
+  void _logAuthEvent(AuthChangeEvent event, Session? session) {
+    final token = session?.accessToken ?? '';
+    final segments = token.isEmpty ? 0 : token.split('.').length;
+    debugPrint(
+      'Auth event: ${event.name}, user: ${session?.user.id ?? 'none'}, '
+      'tokenSegments: $segments',
+    );
+  }
+
+  Future<void> _forceSignOut(String reason) async {
+    if (_isSigningOut) return;
+    _isSigningOut = true;
+    debugPrint('Auth forced sign-out: $reason');
+    await _client.auth.signOut();
+    onSessionInvalid?.call();
+    _isSigningOut = false;
+  }
 
   static AuthSnapshot _buildSnapshot(Session? session) {
     if (session == null) {

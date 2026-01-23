@@ -1,14 +1,18 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class AuthScreen extends StatefulWidget {
+import '../../state/providers.dart';
+
+class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
   @override
-  State<AuthScreen> createState() => _AuthScreenState();
+  ConsumerState<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends State<AuthScreen> {
+class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _emailController = TextEditingController();
   bool _isLoading = false;
   String? _message;
@@ -52,9 +56,10 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
-       //redirectTo:'io.supabase.flutter://login-callback',
-       redirectTo: 'com.mixr.app://login-callback',
+        //redirectTo:'io.supabase.flutter://login-callback',
+        redirectTo: 'com.mixr.app://login-callback',
         queryParams: {'prompt': 'select_account'},
+        authScreenLaunchMode: LaunchMode.externalApplication,
       );
       setState(() {
         _message = 'Complete sign-in in the browser.';
@@ -103,6 +108,19 @@ class _AuthScreenState extends State<AuthScreen> {
               onPressed: _isLoading ? null : _signInWithGoogle,
               child: const Text('Continue with Google'),
             ),
+            if (kDebugMode) ...[
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: () async {
+                  await ref.read(authCleanupProvider).hardResetAuth();
+                  if (!mounted) return;
+                  setState(() {
+                    _message = 'Auth reset complete.';
+                  });
+                },
+                child: const Text('Hard reset auth (debug)'),
+              ),
+            ],
             if (_message != null) ...[
               const SizedBox(height: 12),
               Text(_message!),

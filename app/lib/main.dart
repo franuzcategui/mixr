@@ -14,6 +14,10 @@ Future<void> main() async {
   await Supabase.initialize(
     url: AppEnv.supabaseUrl,
     anonKey: AppEnv.supabaseAnonKey,
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.pkce,
+      detectSessionInUri: true,
+    ),
   );
 
   runApp(const ProviderScope(child: MyApp()));

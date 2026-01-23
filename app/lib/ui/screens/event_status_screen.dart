@@ -88,10 +88,7 @@ class _EventStatusScreenState extends ConsumerState<EventStatusScreen> {
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
-              await ref.read(authControllerProvider.notifier).signOut();
-              ref.read(eventControllerProvider.notifier).clearEvent();
-              ref.read(profileControllerProvider.notifier).clearProfile();
-              ref.read(swipeControllerProvider.notifier).clearSwipe();
+              await ref.read(authCleanupProvider).signOutAndClear();
             },
           ),
         ],
