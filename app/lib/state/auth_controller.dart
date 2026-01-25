@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../core/debug/debug_log.dart';
 class AuthSnapshot {
   const AuthSnapshot({
     required this.session,
@@ -35,6 +36,18 @@ class AuthController extends StateNotifier<AuthSnapshot> {
   bool _isRefreshing = false;
 
   Future<void> _handleAuthChange(AuthChangeEvent event, Session? session) async {
+    // #region agent log
+    debugLog(
+      hypothesisId: 'H1',
+      location: 'auth_controller.dart:_handleAuthChange',
+      message: 'Auth state change',
+      data: {
+        'event': event.name,
+        'hasSession': session != null,
+        'expiresAt': session?.expiresAt,
+      },
+    );
+    // #endregion
     _logAuthEvent(event, session);
     final snapshot = _buildSnapshot(session);
     state = snapshot;
@@ -49,8 +62,8 @@ class AuthController extends StateNotifier<AuthSnapshot> {
       return;
     }
 
-    if (event == AuthChangeEvent.userDeleted) {
-      await _forceSignOut('user_deleted');
+    if (event == AuthChangeEvent.userUpdated) {
+      await _forceSignOut('user_updated');
     }
   }
 

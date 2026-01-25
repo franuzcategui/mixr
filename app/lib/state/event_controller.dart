@@ -91,6 +91,34 @@ class EventController extends StateNotifier<EventStateSnapshot> {
     }
   }
 
+    Future<void> mintInvite(String token) async {
+ 
+    state = state.copyWith(status: const AsyncValue.loading(), errorMessage: null);
+    try {
+      final response = await _api.mintInvite();
+      final event = EventSnapshot(
+        eventId: response['event_id'] as String,
+        eventName: (response['event_name'] as String?) ?? 'Event',
+        swipeStartAt: response['swipe_start_at'] as String,
+        swipeEndAt: response['swipe_end_at'] as String,
+        timezone: (response['timezone'] as String?) ?? 'UTC',
+        isPaid: response['is_paid'] == true,
+        isTestMode: response['is_test_mode'] == true,
+        testModeAttendeeCap:
+            (response['test_mode_attendee_cap'] as num?)?.toInt() ?? 0,
+      );
+      state = state.copyWith(
+        event: event,
+        status: const AsyncValue.data(null),
+      );
+    } catch (error) {
+      state = state.copyWith(
+        status: AsyncValue.error(error, StackTrace.current),
+        errorMessage: error.toString(),
+      );
+    }
+  }
+
   void clearEvent() {
     state = EventStateSnapshot.empty;
   }

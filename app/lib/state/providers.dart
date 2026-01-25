@@ -14,7 +14,7 @@ final supabaseClientProvider = Provider<SupabaseClient>(
 );
 
 final edgeApiProvider = Provider<EdgeApi>(
-  (ref) => EdgeApi(),
+  (ref) => EdgeApi(ref.watch(supabaseClientProvider)),
 );
 
 final swipeRepoProvider = Provider<SwipeRepo>(

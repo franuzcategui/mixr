@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/config/app_env.dart';
+import '../../core/debug/debug_log.dart';
 import '../../domain/models/event.dart';
 import '../../state/providers.dart';
 import 'event_status_screen.dart';
@@ -76,15 +77,47 @@ class _JoinEventScreenState extends ConsumerState<JoinEventScreen> {
     });
 
     try {
+      // #region agent log
+      final session = Supabase.instance.client.auth.currentSession;
+      debugLog(
+        hypothesisId: 'H2 llego aqui paps',
+        location: 'join_event_screen.dart:_mintInvite',
+        message: 'Mint invite invoked',
+        data: {
+          'hasSession': session != null,
+          'expiresAt': session?.expiresAt,
+          'tokenSegments': session?.accessToken.isNotEmpty == true
+              ? session!.accessToken.split('.').length
+              : 0,
+        },
+      );
+      // #endregion
+
       final response = await ref.read(edgeApiProvider).mintInvite();
       final inviteToken = response['invite_token'] as String?;
       if (inviteToken != null && inviteToken.isNotEmpty) {
         _tokenController.text = inviteToken;
       }
+      // #region agent log
+      debugLog(
+        hypothesisId: 'H2',
+        location: 'join_event_screen.dart:_mintInvite',
+        message: 'Mint invite success',
+        data: {'hasInviteToken': inviteToken?.isNotEmpty == true},
+      );
+      // #endregion
       setState(() {
         _errorMessage = 'Minted invite token.';
       });
     } catch (error) {
+      // #region agent log
+      debugLog(
+        hypothesisId: 'H2',
+        location: 'join_event_screen.dart:_mintInvite',
+        message: 'Mint invite error',
+        data: {'error': error.toString()},
+      );
+      // #endregion
       setState(() {
         _errorMessage = error.toString();
       });
@@ -96,6 +129,8 @@ class _JoinEventScreenState extends ConsumerState<JoinEventScreen> {
       }
     }
   }
+
+  
 
   Map<String, dynamic>? _decodeJwt(String token) {
     final parts = token.split('.');

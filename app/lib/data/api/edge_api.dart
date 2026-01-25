@@ -1,19 +1,17 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../core/config/app_env.dart';
+import '../../core/debug/debug_log.dart';
 import '../../core/errors/api_exception.dart';
 
 class EdgeApi {
-  EdgeApi({http.Client? client}) : _client = client ?? http.Client();
+  EdgeApi(this._client);
+  final SupabaseClient _client;
 
-  final http.Client _client;
 
   Future<Map<String, dynamic>> joinEvent(String token) {
-    return _postJson(
-      functionName: 'join_event',
+    return _invokeMap(
+        'join_event',
       body: {'token': token},
     );
   }
@@ -23,8 +21,8 @@ class EdgeApi {
     required String swipedId,
     required String direction,
   }) {
-    return _postJson(
-      functionName: 'swipe',
+    return _invokeMap(
+        'swipe',
       body: {
         'event_id': eventId,
         'swiped_id': swipedId,
@@ -33,95 +31,156 @@ class EdgeApi {
     );
   }
 
+
   Future<Map<String, dynamic>> mintInvite() {
-    return _postJson(
-      functionName: 'mint_invite',
+    return _invokeMap(
+        'mint_invite',
       body: const {},
     );
   }
 
-  Future<Map<String, dynamic>> _postJson({
-    required String functionName,
-    required Map<String, dynamic> body,
-  }) async {
-    final accessToken = await _resolveAccessToken();
+  Future<Map<String, dynamic>> _invokeMap(
+  String functionName, {
+  required Map<String, dynamic> body,
+}) async {
+  final session = _client.auth.currentSession;
+  if (session == null) {
+    throw ApiUnauthorizedException('Not signed in.');
+  }
 
-    final uri = Uri.parse('${AppEnv.supabaseUrl}/functions/v1/$functionName');
-    final response = await _client.post(
-      uri,
-      headers: {
-        'Authorization': 'Bearer $accessToken',
-        'apikey': AppEnv.supabaseAnonKey,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
+  // Safe debug (no secrets)
+  final token = session.accessToken;
+  debugPrint('[EdgeApi] invoke=$functionName tokenLen=${token.length} segments=${token.split(".").length}');
+
+  // #region agent log
+  debugLog(
+    hypothesisId: 'H1',
+    location: 'edge_api.dart:_invokeMap',
+    message: 'Invoke function start',
+    data: {
+      'function': functionName,
+      'hasSession': true,
+      'expiresAt': session.expiresAt,
+      'tokenSegments': token.split('.').length,
+    },
+  );
+  // #endregion
+
+  try {
+    final res = await _client.functions.invoke(functionName, body: body);
+
+    // Some SDK versions expose status; some don’t. Guard it.
+    final status = (res as dynamic).status as int?;
+    if (status != null && (status < 200 || status >= 300)) {
+      final msg = _extractMessage(res.data) ?? 'Function failed';
+      if (status == 401) throw ApiUnauthorizedException(msg);
+      throw ApiServerException(msg, statusCode: status);
+    }
+
+    final data = res.data;
+    // #region agent log
+    debugLog(
+      hypothesisId: 'H1',
+      location: 'edge_api.dart:_invokeMap',
+      message: 'Invoke function success',
+      data: {
+        'function': functionName,
+        'status': status,
+        'hasData': data != null,
       },
-      body: jsonEncode(body),
     );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final message = _readErrorMessage(response.body);
-      if (response.statusCode == 401) {
-        throw ApiUnauthorizedException(message);
-      }
-      throw ApiServerException(message, statusCode: response.statusCode);
-    }
-
-    if (response.body.isEmpty) {
-      return <String, dynamic>{};
-    }
-
-    final decoded = jsonDecode(response.body);
-    if (decoded is Map<String, dynamic>) {
-      return decoded;
-    }
-
-    return <String, dynamic>{'data': decoded};
+    // #endregion
+    if (data == null) return <String, dynamic>{};
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return <String, dynamic>{'data': data};
+  } on FunctionException catch (e) {
+    // #region agent log
+    debugLog(
+      hypothesisId: 'H3',
+      location: 'edge_api.dart:_invokeMap',
+      message: 'Invoke function error',
+      data: {
+        'function': functionName,
+        'status': e.status,
+        'reason': e.reasonPhrase,
+        'hasDetails': e.details != null,
+      },
+    );
+    // #endregion
+    final msg = e.details?['message']?.toString()
+        ?? e.reasonPhrase
+        ?? 'Function error';
+    if (e.status == 401) throw ApiUnauthorizedException(msg);
+    throw ApiServerException(msg, statusCode: e.status);
   }
+}
 
-  Future<String> _resolveAccessToken() async {
-    final auth = Supabase.instance.client.auth;
-    var session = auth.currentSession;
-    if (session == null) {
-      throw ApiUnauthorizedException('Missing Supabase access token.');
-    }
-
-    final expiresAt = session.expiresAt;
-    if (expiresAt != null) {
-      final expiry = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
-      if (DateTime.now().isAfter(expiry.subtract(const Duration(minutes: 1)))) {
-        try {
-          final refreshed = await auth.refreshSession();
-          session = refreshed.session ?? auth.currentSession;
-        } catch (_) {
-          throw ApiUnauthorizedException('Failed to refresh Supabase session.');
-        }
-      }
-    }
-
-    final accessToken = session?.accessToken;
-    if (accessToken == null || accessToken.isEmpty) {
-      throw ApiUnauthorizedException('Missing Supabase access token.');
-    }
-
-    return accessToken;
+String? _extractMessage(dynamic data) {
+  if (data == null) return null;
+  if (data is String) return data;
+  if (data is Map) {
+    final m = data['message'] ?? data['error'] ?? data['msg'];
+    return m?.toString();
   }
+  return data.toString();
+}
 
-  String _readErrorMessage(String body) {
-    if (body.isEmpty) {
-      return 'Request failed with no response body.';
-    }
 
-    try {
-      final decoded = jsonDecode(body);
-      if (decoded is Map<String, dynamic>) {
-        final message = decoded['message'] ?? decoded['error'];
-        if (message is String && message.isNotEmpty) {
-          return message;
-        }
-      }
-      return body;
-    } catch (_) {
-      return body;
-    }
-  }
+// Future<Map<String, dynamic>> _invokeMap(
+//     String functionName, {
+//     required Map<String, dynamic> body,
+//   }) async {
+
+//     // check if the user is signed in
+//      try {
+//       if (Supabase.instance.client.auth.currentSession == null) {
+//         throw StateError('Please sign in to join an event.');
+//       }
+//       // get the access token for debugggin
+//       final session = Supabase.instance.client.auth.currentSession;
+//       debugPrint('JoinEvent access token: ${session?.accessToken ?? '(none)'}');
+//     } catch (e) {
+//       debugPrint('EdgeApi _invokeMap error: $e');
+//       throw ApiUnauthorizedException(e.toString());
+//     }
+    
+//     try {
+//       final res = await _client.functions.invoke(
+//         functionName,
+//         body: body,
+//       );
+      
+
+//       // Depending on SDK version, errors may appear as `error` or as an exception.
+//       // If this compiles with your version, keep it; otherwise rely on the catch below.
+//       if (res.status != 200) {
+//         debugPrint('EdgeApi _invokeMap error: ${res.data} token: ${body['token']}');
+//         final msg = res.data as String;
+//         // Some SDKs provide status; if yours does, map 401 cleanly.
+//         throw ApiServerException(msg);
+//       }
+
+//       final data = res.data;
+//       if (data == null) return <String, dynamic>{};
+
+//       if (data is Map) {
+//         return Map<String, dynamic>.from(data);
+//       }
+
+//       // Normalize non-map responses
+//       return <String, dynamic>{'data': data};
+//     } on FunctionException catch (e) {
+//       // This is what you’ve been seeing: status=401, message=Invalid JWT
+//       if (e.status == 401) {
+//         throw ApiUnauthorizedException(e.details?['message']?.toString() ?? e.reasonPhrase ?? 'Unauthorized');
+//       }
+//       throw ApiServerException(
+//         e.details?['message']?.toString() ?? e.reasonPhrase ?? e.toString(),
+//         statusCode: e.status,
+//       );
+//     } catch (e) {
+//       // Keep a sane fallback
+//       throw ApiServerException(e.toString());
+//     }
+//   }
 }

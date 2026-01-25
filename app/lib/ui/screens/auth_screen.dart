@@ -32,6 +32,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     try {
       await Supabase.instance.client.auth.signInWithOtp(
         email: _emailController.text.trim(),
+        emailRedirectTo: 'com.mixr.app://login-callback',
       );
       setState(() {
         _message = 'Check your email for the magic link.';
@@ -56,7 +57,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     try {
       await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
-        //redirectTo:'io.supabase.flutter://login-callback',
         redirectTo: 'com.mixr.app://login-callback',
         queryParams: {'prompt': 'select_account'},
         authScreenLaunchMode: LaunchMode.externalApplication,
