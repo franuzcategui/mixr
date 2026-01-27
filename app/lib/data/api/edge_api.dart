@@ -67,7 +67,9 @@ class EdgeApi {
   // #endregion
 
   try {
-    final res = await _client.functions.invoke(functionName, body: body);
+    final res = await _client.functions.invoke(functionName, body: body, headers: {
+      'Authorization': 'Bearer $token',
+    });
 
     // Some SDK versions expose status; some don’t. Guard it.
     final status = (res as dynamic).status as int?;

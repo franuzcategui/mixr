@@ -1,20 +1,20 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { errorResponse, jsonResponse } from "../_shared/http.ts";
-import { getUserId, supabaseAdmin, supabaseUrl } from "../_shared/supabase.ts";
+import { getUserId, supabaseAdmin } from "../_shared/supabase.ts";
 
 function randomToken() {
   return crypto.randomUUID().replace(/-/g, "");
 }
 
 serve(async (request) => {
+  console.log('mint_invite request', { request });
   if (request.method !== "POST") {
     return errorResponse("METHOD_NOT_ALLOWED", 405);
   }
 
-  const authHeader = request.headers.get("Authorization");
+  const authHeader = request.headers.get("authorization");
   const tokenLength = authHeader?.replace("Bearer ", "").trim().length ?? 0;
   console.log("mint_invite auth header", {
-    supabaseUrl,
     hasAuth: Boolean(authHeader),
     tokenLength,
   });

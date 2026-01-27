@@ -210,9 +210,13 @@ class _JoinEventScreenState extends ConsumerState<JoinEventScreen> {
             Text('Session present: ${session != null}'),
             Text('Token length: ${token.length}'),
             if (payload != null) ...[
+              Text('Token sub: ${payload['sub']}'),
+              Text('Token aud: ${payload['aud']}'),
               Text('Token iss: ${payload['iss']}'),
               Text('Token ref: ${payload['ref']}'),
               Text('Token exp: ${payload['exp']}'),
+              Text('Now (UTC): ${DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000}'),
+              Text('Exp - now: ${(payload['exp'] ?? 0) - (DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000)}'),
             ],
             const SizedBox(height: 8),
             // Text('Access token: ${token.isEmpty ? '(none)' : token}'),

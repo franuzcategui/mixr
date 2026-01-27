@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { errorResponse, jsonResponse } from "../_shared/http.ts";
-import { getUserId, supabaseAdmin, supabaseUrl } from "../_shared/supabase.ts";
+import { getUserId, supabaseAdmin } from "../_shared/supabase.ts";
 
 const SQL = {
   selectInvite: `
@@ -39,7 +39,6 @@ serve(async (request) => {
   const authHeader = request.headers.get("Authorization");
   const tokenLength = authHeader?.replace("Bearer ", "").trim().length ?? 0;
   console.log("join_event auth header", {
-    supabaseUrl,
     hasAuth: Boolean(authHeader),
     tokenLength,
   });
@@ -53,7 +52,7 @@ serve(async (request) => {
     return jsonResponse({ error: "INVALID_AUTH", details: message }, 401);
   }
 
-  console.log("join_event auth check", { supabaseUrl, userId });
+  console.log("join_event auth check", { userId });
 
   const { data: inviteRow, error: inviteError } = await supabaseAdmin
     .from("invites")

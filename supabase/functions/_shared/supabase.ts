@@ -1,16 +1,19 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-export const supabaseUrl = Deno.env.get("SUPABASE_URL");
+const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+const publishableKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
 }
-
-export const supabaseAdmin: SupabaseClient = createClient(supabaseUrl, serviceRoleKey, {
+console.log("supabaseUrl: " + supabaseUrl);
+console.log("serviceRoleKey: " + serviceRoleKey);
+export const supabaseAdmin: SupabaseClient = createClient(supabaseUrl, publishableKey, {
   auth: {
-    persistSession: false,
-    autoRefreshToken: false,
+    persistSession: true,
+    autoRefreshToken: true,
   },
 });
 
